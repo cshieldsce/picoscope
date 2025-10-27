@@ -37,7 +37,7 @@ include(FreeRTOS_Kernel_import.cmake)
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(picoscope picoscope.c )
+add_executable(picoscope src/picoscope.c )
 
 pico_set_program_name(picoscope "picoscope")
 pico_set_program_version(picoscope "0.1")
@@ -52,7 +52,7 @@ target_link_libraries(picoscope
 
 # Add the standard include files to the build
 target_include_directories(picoscope PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/src
 )
 
 # Add any user requested libraries
