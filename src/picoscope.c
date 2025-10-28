@@ -4,59 +4,112 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-// The simple task to blink the LED
-void vBlinkTask(void *pvParameters) {
-    printf("BlinkTask: Started!\n");
-    
-    while (true) {
-        printf("BlinkTask: LED ON\n");
+#include "lwip/sockets.h"
+#include "lwip/err.h"
+#include "lwip/netif.h"
+#include "lwip/ip4_addr.h"
+#include <string.h>
+
+#define HTTP_PORT 80
+
+static TaskHandle_t http_task_handle = NULL;
+static TaskHandle_t blink_task_handle = NULL;
+
+const char *ssid = "";
+const char *pass = "";
+
+// Blink LED task
+static void blink_task(void *pv) {
+    for (;;) {
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
         vTaskDelay(pdMS_TO_TICKS(250));
-        
-        printf("BlinkTask: LED OFF\n");
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-        vTaskDelay(pdMS_TO_TICKS(750));
+        vTaskDelay(pdMS_TO_TICKS(250));
     }
+}
+
+// HTTP server task
+static void http_task(void *pv) {
+    cyw43_arch_enable_sta_mode();
+
+    printf("Connecting to WiFi SSID: %s\n", ssid);
+    if (cyw43_arch_wifi_connect_timeout_ms(ssid, pass, CYW43_AUTH_WPA2_AES_PSK, 30000)) {
+        printf("WiFi connect failed\n");
+        vTaskDelete(NULL);
+    }
+
+    printf("IP Address: %s\n", ip4addr_ntoa(netif_ip4_addr(netif_list)));    
+    vTaskDelay(pdMS_TO_TICKS(1000));
+        
+    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    
+    printf("socket() returned: %d\n", sock);
+    if (sock < 0) {
+        printf("socket() failed\n");
+        vTaskDelete(NULL);
+    }
+    
+    int opt = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(HTTP_PORT),
+        .sin_addr = { .s_addr = INADDR_ANY }
+    };
+
+    if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        printf("bind() failed\n");
+        close(sock);
+        vTaskDelete(NULL);
+    }
+
+    if (listen(sock, 1) < 0) {
+        printf("listen() failed\n");
+        close(sock);
+        vTaskDelete(NULL);
+    }
+
+    printf("HTTP server listening on port %d\n", HTTP_PORT);
+
+    for (;;) {
+        struct sockaddr_in client;
+        socklen_t clientlen = sizeof(client);
+        int clientfd = accept(sock, (struct sockaddr*)&client, &clientlen);
+        if (clientfd >= 0) {
+            const char *resp = "HTTP/1.0 200 OK\r\nContent-Length:5\r\n\r\nHallo";
+            send(clientfd, resp, strlen(resp), 0);
+            close(clientfd);
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+// Init task - initializes CYW43 then creates other tasks and deletes itself
+static void init_task(void *pv) {
+    printf("Init task started\n");
+    
+    if (cyw43_arch_init()) {
+        printf("CYW43 init failed\n");
+        for(;;);
+    }
+    printf("CYW43 init OK\n");
+    
+    xTaskCreate(blink_task, "blink", 1024, NULL, 2, &blink_task_handle);
+    xTaskCreate(http_task, "http", 4096, NULL, 1, &http_task_handle);
+        
+    vTaskDelete(NULL);
 }
 
 int main() {
     stdio_init_all();
-    
-    sleep_ms(5000); 
-    printf("--- Pico 2 W FreeRTOS Test ---\n");
+    sleep_ms(2000);
 
-    // This is REQUIRED to control the LED on a Pico 2 W
-    printf("Initializing CYW43 chip...\n");
-    if (cyw43_arch_init()) {
-        printf("FAILED to initialize CYW43 chip.\n");
-        return -1;
-    }
-    printf("CYW43 initialized successfully.\n");
+    printf("Starting FreeRTOS + BSD socket HTTP example\n");
 
-    // Create the task
-    // *** INCREASED STACK SIZE FROM 128 to 256 ***
-    // 128 words (512 bytes) is often too small and causes a stack overflow.
-    printf("Creating blink task...\n");
-    BaseType_t result = xTaskCreate(
-        vBlinkTask,           // The function that implements the task.
-        "BlinkTask",          // A name for the task (for debugging).
-        256,                  // The stack size (in words) for the task.
-        NULL,                 // Parameter passed into the task (not used).
-        1,                    // The task priority.
-        NULL                  // Task handle (not used).
-    );
+    xTaskCreate(init_task, "init", 2048, NULL, 3, NULL);
 
-    if (result != pdPASS) {
-        // This will tell us if FreeRTOS ran out of memory
-        printf("FAILED to create task! (Out of heap?)\n");
-        return -1;
-    }
-    printf("Blink task created.\n");
-
-    // Start the scheduler
-    printf("Starting FreeRTOS scheduler...\n");
     vTaskStartScheduler();
 
-    // This part is never reached
-    while (1);
+    for (;;) tight_loop_contents();
 }
