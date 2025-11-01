@@ -11,7 +11,7 @@
 #define WEBSERVER_PORT ( 80 )
 
 /*
- * Task (Core 0): Wi-Fi Web Server
+ * Task (Medium Priority): Wi-Fi Web Server
  */
 void vWebServerTask(void *pvParameters) {
     cyw43_arch_enable_sta_mode();
