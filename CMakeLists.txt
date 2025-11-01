@@ -60,6 +60,8 @@ target_link_libraries(picoscope
         pico_cyw43_arch_lwip_sys_freertos
         FreeRTOS-Kernel
         FreeRTOS-Kernel-Heap4
+        hardware_adc
+        hardware_dma
         )
 
 pico_add_extra_outputs(picoscope)
