@@ -37,7 +37,7 @@ include(FreeRTOS_Kernel_import.cmake)
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(picoscope src/picoscope.c src/web_server.c)
+add_executable(picoscope src/picoscope.c src/web_server.c src/adc_dma.c)
 
 pico_set_program_name(picoscope "picoscope")
 pico_set_program_version(picoscope "0.1")
