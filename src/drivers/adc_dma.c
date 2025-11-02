@@ -97,7 +97,6 @@ void vAdcDmaInit() {
     adc_hw->cs |= ADC_CS_EN_BITS;
     adc_hw->cs &= ~ADC_CS_RROBIN_BITS;
     adc_hw->cs &= ~ADC_CS_AINSEL_BITS;
-    adc_hw->cs |= ADC_CS_TS_EN_BITS;
     
     /* Configure the FIFO */
     adc_fifo_setup(
