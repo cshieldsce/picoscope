@@ -1,55 +1,77 @@
-# Picoscope - Pico 2 W Wi-Fi Oscilloscope (A FreeRTOS + DMA Lab)
+# Picoscope - Pico 2 W Wi-Fi Oscilloscope
 
-A simple, Wi-Fi-enabled digital oscilloscope using a Raspberry Pi Pico 2 W, FreeRTOS, and a web browser.
+A real-time, Wi-Fi-enabled digital oscilloscope built on Raspberry Pi Pico 2 W, streaming ADC data at 500 kSPS to a browser over WebSocket with sub-10ms latency.
 
 ![Alt Text](docs/scope.gif)
 
-## Project Phases
+## What This Project Does
 
-This project is built in a series of phases. The `main` branch will always contain the most recent stable phase.
+This is a **zero-copy, lock-free oscilloscope** running on bare metal with FreeRTOS. It captures analog signals via ADC + DMA, processes them in a high-priority task, and streams live waveforms to a web browser over WebSocket—all without touching the network stack from the acquisition path.
 
-### Phase 1: Hello, FreeRTOS! (Complete)
-* **Goal:** Prove the FreeRTOS scheduler is running on the Pico 2 W.
-* **Outcome:** The onboard LED blinks from a simple, low-priority FreeRTOS task.
+**Key Features:**
+- **500 kSPS continuous sampling** via DMA (no CPU load)
+- **Triple-buffered zero-copy architecture**: DMA writes directly to buffers; acquisition task hands ownership to web task via pointer (no `memcpy`)
+- **Task notification for low-latency push**: Web server wakes immediately when new data arrives (~5-10ms from capture to browser)
+- **Min/max decimation**: Preserves signal peaks when downsampling 4096 samples to 256 display points
+- **Real-time metrics**: Live display of Vmin/Vmax/Vavg/Vpp, sample rate, data age, and round-trip latency
+- **FreeRTOS multitasking**: Three tasks (Blink, Acquisition, WebServer) with priority-based scheduling
 
-### Phase 2: The Web Server (Complete)
-* **Goal:** Get the Pico on the Wi-Fi and serve a basic HTTP page.
-* **Outcome:** A new `vWebServerTask` (low priority) will connect to Wi-Fi and serve a "Hello World" page to a browser, while the `vBlinkTask` continues to run, proving multitasking.
+## Architecture Overview
 
-### Phase 3: The Acquisition Engine
-* **Goal:** Capture ADC data at a high, fixed sample rate (e.g., 250kSPS) using zero CPU time.
-* **Outcome:** A new `vAcquisitionTask` (high priority) will configure a DMA channel to continuously read from an ADC pin and fill a buffer in the background.
+### The DMA → Task → WebSocket Pipeline
 
-### Phase 4: The Data Pipeline
-* **Goal:** Safely pass the full data buffer from the high-priority ADC task to the low-priority web task.
-* **Outcome:** Use a FreeRTOS **Binary Semaphore** to signal when data is ready. 
+```
+[ADC + DMA IRQ] → [Triple Buffer] → [Acquisition Task] → [Scope Data (owned buffers)] → [WebServer Task] → [Browser]
+     500kSPS         Zero-copy         Task Notify            Latest/InUse             Min/max decimate      Canvas
+```
 
-### Phase 5: Real-Time Streaming
-* **Goal:** Upgrade the HTTP server to a WebSocket server for continuous, real-time data streaming.
-* **Outcome:** The `vWebServerTask` will perform a WebSocket handshake. When a client is connected, it will wait for the semaphore from Phase 4 and immediately send the new data as a WebSocket binary frame.
+**1. ADC + DMA (ISR-driven, no CPU)**
+- ADC samples at 500 kSPS (ADC clock / divider)
+- DMA fills 4096-sample buffers in the background
+- DMA IRQ marks buffer `FULL`, advances to next buffer (`EMPTY` or reuse if overrun)
 
-### Phase 6: The Frontend
-* **Goal:** Visualize the data in the browser.
-* **Outcome:** An `index.html` file (served by the Pico) will use JavaScript to connect to the WebSocket, receive the binary data, convert it to voltage, and plot it live on an HTML `<canvas>` using a charting library.
+**2. Triple Buffer States**
+- `BUFFER_EMPTY`: Available for DMA
+- `BUFFER_FILLING`: Currently being written by DMA
+- `BUFFER_FULL`: Ready for acquisition task to consume
+- `BUFFER_PROCESSING`: Owned by acquisition task (prevents ISR from overwriting)
 
-## Hardware Requirements
+**3. Acquisition Task (Priority 3)**
+- Polls for `FULL` buffers via `bAdcDmaGetLatestBufferPtr()` (sets state to `PROCESSING`)
+- Publishes buffer pointer to `scope_data` module (zero-copy handoff)
+- Releases buffer back to DMA when consumer is done via `vAdcDmaReleaseBuffer()` (sets state to `EMPTY`)
 
-- Raspberry Pi Pico 2 W (RP2350)
+**4. Scope Data Module (Ready/InUse double-buffer)**
+- Maintains two slots: `xReady` (latest unpublished) and `xInUse` (currently being sent)
+- `vScopeDataPublishBuffer()`: acquisition task stores new buffer in `xReady`, drops older if present
+- `bGetLatestScopeData()`: web task promotes `xReady` → `xInUse`, releases old `xInUse` back to DMA
+- Computes voltage stats (min/max/avg) lazily outside critical sections
 
-## Software Requirements
+**5. WebServer Task (Priority 2)**
+- Blocks on `ulTaskNotifyTake()` with 50ms timeout (20 FPS fallback)
+- Wakes immediately when acquisition task calls `xTaskNotifyGive()` (notification-based push)
+- Fetches latest buffer, decimates 4096 → 256 samples (min/max preserving), sends binary WebSocket frame
+- Also services Mongoose HTTP/WebSocket stack (`mg_mgr_poll`) and handles RTT pings
 
-- Pico SDK v2.1.0 or later
-- FreeRTOS-Kernel
-- CMake 3.13+
-- ARM GCC toolchain
+**6. Browser Frontend**
+- WebSocket receives binary frames: `[timestamp, age, sample_count, vmin, vmax, vavg, 256×uint16]`
+- Draws waveform on HTML5 canvas with grid
+- Displays live metrics and round-trip latency (ping/pong)
 
-## Configuration
+### Task Notification Magic
 
-### Critical lwIP Configuration
+Instead of heavyweight FreeRTOS queues or semaphores, the acquisition → web handoff uses **task notifications**:
+- **Zero allocation**: notification is a single 32-bit counter in the task control block
+- **Low latency**: `xTaskNotifyGive()` is ISR-safe and faster than posting to a queue
+- **Backpressure-friendly**: `ulTaskNotifyTake(pdTRUE, timeout)` clears the count; if multiple notifications arrive, web task processes once per wakeup (natural rate-limiting)
 
-This project requires specific lwIP settings to work properly with FreeRTOS and BSD sockets on RP2350. The key configuration is in `lwipopts.h`:
+This keeps the web server responsive without spinning and avoids queue overruns when the browser is slow.
 
-**Must-have settings:**
+## Critical Configuration & Known Quirks
+
+### lwIP Configuration (lwipopts.h)
+
+**Must-have settings to avoid `*** PANIC *** size > 0` during socket operations:**
 ```c
 #define DEFAULT_ACCEPTMBOX_SIZE 32      // Critical for listen() to work
 #define MEMP_NUM_NETCONN 16             // Socket connections
@@ -58,14 +80,54 @@ This project requires specific lwIP settings to work properly with FreeRTOS and 
 #define TCPIP_MBOX_SIZE 32              // TCPIP thread mailbox
 ```
 
-Without these, you'll get a `*** PANIC *** size > 0` error during socket operations.
+Without these, Mongoose's `mg_http_listen()` will panic due to insufficient mailbox space in the lwIP stack.
 
 ### FreeRTOS Heap Size
 
 In `FreeRTOSConfig.h`:
 ```c
-#define configTOTAL_HEAP_SIZE (256*1024)  // 256KB heap required (for now)
+#define configTOTAL_HEAP_SIZE (256*1024)  // 256KB required for tasks + lwIP + Mongoose
+#define configCHECK_FOR_STACK_OVERFLOW 2   // Enable stack overflow detection
+#define configUSE_MALLOC_FAILED_HOOK 1     // Catch OOM early
 ```
+
+### DMA Handler (`vDmaHandler`)
+
+- Runs in interrupt context—must be fast and ISR-safe
+- Uses `taskENTER_CRITICAL()` to protect buffer state changes
+- If next buffer is `PROCESSING` (consumer slow), reuses current buffer and increments `ulOverruns` counter (drops frame instead of blocking)
+
+## Roadmap: Future Features
+
+### Phase 7: Trigger Engine
+- **Goal**: Capture specific events (rising/falling edge, level, pulse width).
+- **Plan**: Add `core/trigger.[ch]` module with configurable trigger modes, holdoff, pre/post samples. Acquisition task will search for trigger condition before publishing buffer.
+
+### Phase 8: Advanced Measurements
+- **Goal**: Auto-compute frequency, RMS, duty cycle, rise/fall time.
+- **Plan**: Add `core/dsp.[ch]` with FFT, zero-crossing detection, and edge timing. Display measurements in web UI.
+
+### Phase 9: Multi-Channel & AC Coupling
+- **Goal**: Sample multiple ADC channels, toggle DC/AC coupling.
+- **Plan**: Extend DMA to round-robin mode, add DC offset removal in `dsp_remove_dc()`, add channel selector and coupling control in config.
+
+### Phase 10: Full Frontend UI
+- **Goal**: Professional oscilloscope UI with controls and real-time updates.
+- **Features**:
+  - **Control panel**: Trigger settings (mode, level, edge), timebase (sample rate, window), voltage range, coupling
+  - **Measurements panel**: Auto-display Vmin/Vmax/Vpp/freq/RMS/duty cycle
+  - **Cursors**: Draggable time/voltage cursors for manual measurements
+  - **Zoom/Pan**: Navigate through captured waveforms
+  - **Save/Export**: Download CSV or PNG of waveform
+  - **WebSocket command channel**: Browser sends JSON commands (e.g., `{"trigger":{"mode":"rising","level":2048}}`) to update config on-the-fly
+
+### Phase 11: Persistence & Storage
+- **Goal**: Save settings and waveforms to flash.
+- **Plan**: Use Pico flash to store config profiles, implement waveform capture history (ring buffer of triggered frames).
+
+### Phase 12: Performance Tuning
+- **Goal**: Push to 1 MSPS and beyond.
+- **Plan**: Optimize DMA transfer size, tune ADC clock, profile critical paths, consider offloading decimation to PIO.
 
 ## Building
 
@@ -73,12 +135,12 @@ In `FreeRTOSConfig.h`:
 mkdir build
 cd build
 cmake ..
-make
+make -j$(nproc)
 ```
 
 ## Flashing
 
-Hold the BOOTSEL button while plugging in the Pico 2 W, then:
+Hold BOOTSEL while plugging in the Pico 2 W, then:
 
 ```bash
 cp picoscope.uf2 /path/to/RPI-RP2
@@ -93,28 +155,42 @@ picotool reboot
 ## Usage
 
 1. Flash the firmware
-2. Connect via USB serial (115200 baud) to see debug output
-3. The Pico will connect to your WiFi network
-4. Note the IP address printed in serial output (e.g., `192.198.1.164`)
-5. Open a browser and navigate to `http://[IP_ADDRESS]`
-6. You should see "Hello" displayed on the webpage
-7. The onboard LED will blink at 2Hz
+2. Connect via USB serial (115200 baud) to see debug output and IP address
+3. The Pico will connect to your WiFi network (SSID/password hardcoded in `picoscope.c`)
+4. Note the IP address printed: `IP Address: 192.168.1.xxx`
+5. Open a browser and navigate to `http://192.168.1.xxx`
+6. You should see the live oscilloscope UI with waveform and metrics
+7. The onboard LED will blink at 2Hz (visual heartbeat)
+
+## Hardware Requirements
+
+- Raspberry Pi Pico 2 W (RP2350)
+- ADC input on GPIO26 (ADC0) – connect via 10 kΩ resistor + 100 nF cap to GND
+- USB cable for power and serial debug
+
+## Software Requirements
+
+- Pico SDK v2.1.0 or later
+- FreeRTOS-Kernel (bundled)
+- CMake 3.13+
+- ARM GCC toolchain (arm-none-eabi-gcc 10.3+)
+- Mongoose embedded web server (bundled in `third_party/`)
 
 ## CMakeLists.txt Configuration
 
-Key library linking:
+**Key library linking:**
 ```cmake
 target_link_libraries(picoscope 
     pico_stdlib
-    pico_cyw43_arch_lwip_sys_freertos  # NOT threadsafe_background
-    FreeRTOS-Kernel
+    pico_cyw43_arch_lwip_sys_freertos
+    hardware_adc
+    hardware_dma
     FreeRTOS-Kernel-Heap4
 )
 ```
 
-Use `pico_cyw43_arch_lwip_sys_freertos` for FreeRTOS integration, not the polling variants.
+Use `pico_cyw43_arch_lwip_sys_freertos` (not `threadsafe_background`) for proper FreeRTOS integration with lwIP.
 
-## Notes
+---
 
-- This configuration is specific to RP2350 (Pico 2 W) with SDK v2.1.0
-- The `DEFAULT_ACCEPTMBOX_SIZE` parameter was critical to fix socket panics
+**Status**: ✅ Phases 1-6 complete. Ready for trigger engine and advanced DSP (Phases 7+).
