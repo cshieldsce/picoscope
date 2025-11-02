@@ -203,9 +203,6 @@ void vWebServerTask(void *pvParameters) {
     mg_mgr_init(&xWebsocketManager);
     struct mg_connection *uxListener = NULL;
 
-    /* Register this task for acquisition notifications with our scope data system */
-    vScopeDataSetWebServerHandle(xTaskGetCurrentTaskHandle());
-
     /* Initialize Mongoose HTTP server */
     cyw43_arch_lwip_begin();
     uxListener = mg_http_listen(&xWebsocketManager, "http://0.0.0.0:80", (mg_event_handler_t) vEventHandler, NULL);
@@ -218,26 +215,23 @@ void vWebServerTask(void *pvParameters) {
     }
     printf("Mongoose HTTP server listening on port 80\n");
 
-    /* Main loop */
     TickType_t xLastUpdate = xTaskGetTickCount();
-    const TickType_t xUpdatePeriod = pdMS_TO_TICKS(50);  // Fallback ~20 FPS
+    const TickType_t xUpdatePeriod = pdMS_TO_TICKS(50);  // ~20 FPS fallback
     uint16_t usDecimated[DISPLAY_POINTS];
 
     for (;;) {
-        /* Consume any notifications; push a frame right away */
-        uint32_t ulNotif = ulTaskNotifyTake(pdTRUE, 0);
-        bool bPushDueNotify = ulNotif > 0;
+        // Block until either notified by acquisition OR timeout to keep UI alive
+        uint32_t ulNotif = ulTaskNotifyTake(pdTRUE, xUpdatePeriod);
+        bool bPushDueNotify = (ulNotif > 0);
 
-        /* Drive Mongoose under lwIP lock */
+        // Always service Mongoose regularly
         cyw43_arch_lwip_begin();
-        mg_mgr_poll(&xWebsocketManager, 1);
+        mg_mgr_poll(&xWebsocketManager, 0);
         cyw43_arch_lwip_end();
 
-        /* Rate limiter fallback; push if enough time has elapsed since last push */
-        bool bPushDueTimer = (xTaskGetTickCount() - xLastUpdate) >= xUpdatePeriod;
-        if (bPushDueTimer) {
-            xLastUpdate += xUpdatePeriod;
-        }
+        TickType_t now = xTaskGetTickCount();
+        bool bPushDueTimer = (now - xLastUpdate) >= xUpdatePeriod;
+        if (bPushDueTimer) xLastUpdate = now;
 
         if (xWebsocketCount > 0 && (bPushDueNotify || bPushDueTimer)) {
             ScopeBuffer_t xLatest;
