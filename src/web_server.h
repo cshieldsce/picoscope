@@ -11,8 +11,8 @@ typedef struct {
 } WifiCredentials_t;
 
 /*
- * Task (Core 0): Wi-Fi Web Server
- * Connects to Wi-Fi and serves a simple HTTP page.
+ * Task: Wi-Fi Web Server
+ * Connects to Wi-Fi and setups WebSockets.
  */
 void vWebServerTask(void *pvParameters);
 
