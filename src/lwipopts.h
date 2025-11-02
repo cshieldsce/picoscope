@@ -34,6 +34,10 @@
 #define LWIP_SO_RCVTIMEO 1
 #define RECV_BUFSIZE_DEFAULT 2048
 
+#ifndef SO_REUSE
+#define SO_REUSE 1
+#endif
+
 // Core locking
 #define LWIP_TCPIP_CORE_LOCKING_INPUT 1
 
