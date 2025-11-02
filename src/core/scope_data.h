@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include "FreeRTOS.h"
 #include "task.h"
-#include "adc_dma.h"
+#include "drivers/adc_dma.h"
 
 /* 
  * Zero-copy scope data model

@@ -1,5 +1,5 @@
 #include "web_server.h"
-#include "scope_data.h"
+#include "core/scope_data.h"
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
@@ -9,7 +9,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "mongoose.h"
+#include "third_party/mongoose.h"
 
 #include <string.h>
 #include <stdio.h>

@@ -961,7 +961,7 @@ struct timeval {
 #endif
 
 #ifndef MG_ENABLE_PACKED_FS
-#define MG_ENABLE_PACKED_FS 0
+#define MG_ENABLE_PACKED_FS 1
 #endif
 
 #ifndef MG_ENABLE_ASSERT

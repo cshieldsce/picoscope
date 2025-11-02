@@ -4,9 +4,9 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "web_server.h"
-#include "adc_dma.h"
-#include "scope_data.h"
+#include "net/web_server.h"
+#include "drivers/adc_dma.h"
+#include "core/scope_data.h"
 
 static TaskHandle_t xWebServerHandle = NULL;
 static TaskHandle_t xBlinkHandle = NULL;

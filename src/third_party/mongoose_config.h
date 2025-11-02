@@ -12,4 +12,8 @@
 #define MG_IO_SIZE 1460
 #endif
 
+#ifndef MG_ENABLE_PACKED_FS
+#define MG_ENABLE_PACKED_FS 0    // Disable packed filesystem
+#endif
+
 #endif
