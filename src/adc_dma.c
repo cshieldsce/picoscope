@@ -13,10 +13,15 @@ static dma_channel_config dmaConfig;
 static volatile bool bCaptureRunning = false;
 
 /* Buffer Management */
-static xAdcBuffer_t buffers[NUM_BUFFERS];
+static AdcBuffer_t xBuffers[NUM_BUFFERS];
 static volatile uint8_t ucWriteIndex = 0;
-static volatile uint8_t ucReadIndex = 0;
 static volatile uint32_t ulBufferTimestamp[NUM_BUFFERS];
+
+/* Track last completed buffer explicitly for safe handout */
+static volatile uint8_t ucLastCompleted = 0;
+
+/* Overrun counter when ISR has to reuse current buffer to avoid PROCESSING */
+static volatile uint32_t ulOverruns = 0;
 
 /* DMA Completion Handler 
  * Gets called with interupt when a DMA transfer completes.
@@ -27,19 +32,32 @@ static void vDmaHandler() {
         dma_channel_acknowledge_irq0(iDmaChannel);
         
         /* Transfer is complete which means buffer is full */
-        buffers[ucWriteIndex].state = BUFFER_FULL;
-        ulBufferTimestamp[ucWriteIndex] = to_ms_since_boot(get_absolute_time());
+        uint8_t completed = ucWriteIndex;
+        xBuffers[completed].xState = BUFFER_FULL;
+        ulBufferTimestamp[completed] = to_ms_since_boot(get_absolute_time());
+        ucLastCompleted = completed; /* Remember which one completed */
         
         /* Get index to next buffer */
-        ucWriteIndex = (ucWriteIndex + 1) % NUM_BUFFERS;
+        uint8_t next = (uint8_t) ((completed + 1) % NUM_BUFFERS);
+
+        /* Avoid overwriting a PROCESSING buffer.
+         * With 3 buffers, the ISR should rarely hit this case because
+         * one is FILLING, one is FULL, and one is PROCESSING.
+         * If it does happen, reuse the just-completed buffer (drop older frame).
+         */
+        if (xBuffers[next].xState == BUFFER_PROCESSING) {
+            next = completed;     /* Reuse current buffer */
+            ulOverruns++;         /* Count the drop */
+        }
         
-        /* Update buffer state and start transfer with new buffer info */
+        /* Update buffer state and start transfer with next buffer info */
         if (bCaptureRunning) {
-            buffers[ucWriteIndex].state = BUFFER_FILLING;
+            ucWriteIndex = next;
+            xBuffers[ucWriteIndex].xState = BUFFER_FILLING;
             dma_channel_configure(
                 iDmaChannel,
                 &dmaConfig,
-                buffers[ucWriteIndex].data,
+                xBuffers[ucWriteIndex].usData,
                 &adc_hw->fifo,
                 ADC_BUFFER_SIZE,
                 true
@@ -51,7 +69,7 @@ static void vDmaHandler() {
 /* ADC DMA Initialization
  * Setups the ADC and DMA for continuous sampling.
  * Configures ADC with DREQ for DMA requests.
- * Enables DMA interupts for buffer management w/ double buffering.
+ * Enables DMA interupts for buffer management w/ triple buffering.
  */
 void vAdcDmaInit() {
     printf("ADC_DMA: Initializing...\n");
@@ -68,6 +86,7 @@ void vAdcDmaInit() {
     
     /* Sets ADC to round robin countinous sampling 
        Allows us to transfer the samples to memory without continuous CPU intervention.
+       Might not need for single channel.
     */
     adc_set_round_robin(0);
 
@@ -119,23 +138,27 @@ void vAdcDmaInit() {
 
     /* Initialize buffer states */
     for(int i = 0; i < NUM_BUFFERS; i++) {
-        buffers[i].state = BUFFER_EMPTY;
+        xBuffers[i].xState = BUFFER_EMPTY;
+        ulBufferTimestamp[i] = 0;     /* init timestamps */
     }
+
+    ucWriteIndex = 0;                  /* explicit init */
+    ucLastCompleted = 0;               /* init last-completed */
+    ulOverruns = 0;                    /* reset overruns */
 }
 
 void vAdcDmaStartContinous() {
     /* Start continuous capture */
     bCaptureRunning = true;
     ucWriteIndex = 0;
-    ucReadIndex = 0;
     
     /* Begin our first transfer */
-    buffers[ucWriteIndex].state = BUFFER_FILLING;
+    xBuffers[ucWriteIndex].xState = BUFFER_FILLING;
     adc_run(true);
     dma_channel_configure(
         iDmaChannel,
         &dmaConfig,
-        buffers[ucWriteIndex].data,
+        xBuffers[ucWriteIndex].usData,
         &adc_hw->fifo,
         ADC_BUFFER_SIZE,
         true /* Start immediately */
@@ -147,20 +170,38 @@ void vAdcDmaStop() {
     adc_run(false);
 }
 
-bool bAdcDmaGetLatestBuffer(uint16_t* dest, uint32_t* timestamp) {
-    if (buffers[ucReadIndex].state != BUFFER_FULL) {
-        return false; /* Non-blocking will return if no data freeing up the CPU */
-    }
-    
-    /* Copy buffer data at read index attach timestamp */
-    memcpy(dest, buffers[ucReadIndex].data, ADC_BUFFER_SIZE * sizeof(uint16_t));
-    *timestamp = ulBufferTimestamp[ucReadIndex];
-    
-    /* Marked the buffer as empty (will be rewrited) */
-    buffers[ucReadIndex].state = BUFFER_EMPTY;
+/* Zero-copy version: Returns pointer to DMA buffer (setting it to PROCESSING) */
+bool bAdcDmaGetLatestBufferPtr(uint16_t** pusBufferPtr, uint32_t* pulTimestamp) {
+    if (pusBufferPtr == NULL || pulTimestamp == NULL) return false;
 
-    /* Move to next buffer */
-    ucReadIndex = (ucReadIndex + 1) % NUM_BUFFERS;
-    
-    return true;
+    bool ok = false;
+
+    /* CHANGE: Use a critical section to avoid races with ISR and use ucLastCompleted */
+    taskENTER_CRITICAL();
+    uint8_t latest = ucLastCompleted;
+
+    if (xBuffers[latest].xState == BUFFER_FULL) {
+        xBuffers[latest].xState = BUFFER_PROCESSING;  /* CHANGE: transfer ownership safely */
+        *pusBufferPtr = xBuffers[latest].usData;
+        *pulTimestamp = ulBufferTimestamp[latest];
+        ok = true;
+    }
+    taskEXIT_CRITICAL();
+
+    return ok;
+}
+
+/* Release a previously handed-out DMA buffer (setting it to EMPTY) */
+void vAdcDmaReleaseBuffer(uint16_t* pusBufferPtr) {
+    if (pusBufferPtr == NULL) return;
+
+    /* CHANGE: Protect against ISR while changing state */
+    taskENTER_CRITICAL();
+    for (int i = 0; i < NUM_BUFFERS; i++) {
+        if (xBuffers[i].usData == pusBufferPtr && xBuffers[i].xState == BUFFER_PROCESSING) {
+            xBuffers[i].xState = BUFFER_EMPTY;
+            break;
+        }
+    }
+    taskEXIT_CRITICAL();
 }
