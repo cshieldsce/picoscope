@@ -18,6 +18,7 @@
 #define DISPLAY_POINTS 256
 
 /* Binary xPacket for WebSocket streaming; packed to avoid any padding bytes. */
+
 typedef struct __attribute__((packed)) {
     uint32_t ulTimestampMs;
     uint32_t ulAgeMs;
@@ -240,7 +241,7 @@ void vWebServerTask(void *pvParameters) {
 
         if (xWebsocketCount > 0 && (bPushDueNotify || bPushDueTimer)) {
             ScopeBuffer_t xLatest;
-            if (bGetxLatestScopeData(&xLatest, true) && xLatest.pusSamples != NULL) {
+            if (bGetLatestScopeData(&xLatest, true) && xLatest.pusSamples != NULL) {
                 ScopePacket_t xPacket;
                 uint32_t ulNowMs = to_ms_since_boot(get_absolute_time());
                 xPacket.ulTimestampMs = xLatest.ulTimestamp;
