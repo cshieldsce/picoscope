@@ -2,6 +2,8 @@
 
 A simple, Wi-Fi-enabled digital oscilloscope using a Raspberry Pi Pico 2 W, FreeRTOS, and a web browser.
 
+![Alt Text](docs/scope.gif)
+
 ## Project Phases
 
 This project is built in a series of phases. The `main` branch will always contain the most recent stable phase.
