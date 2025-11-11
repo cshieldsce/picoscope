@@ -256,6 +256,9 @@ void vWebServerTask(void *pvParameters) {
                     }
                 }
                 cyw43_arch_lwip_end();
+
+                // Release the in-use buffer so the next ready buffer can be promoted
+                vScopeDataReleaseBuffer();
             }
         }
     }
