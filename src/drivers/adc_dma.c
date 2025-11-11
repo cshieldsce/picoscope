@@ -20,9 +20,6 @@ static volatile uint32_t ulBufferTimestamp[NUM_BUFFERS];
 /* Track last completed buffer explicitly for safe handout */
 static volatile uint8_t ucLastCompleted = 0;
 
-/* Overrun counter when ISR has to reuse current buffer to avoid PROCESSING */
-static volatile uint32_t ulOverruns = 0;
-
 /* DMA Completion Handler 
  * Gets called with interupt when a DMA transfer completes.
  * Checks which buffer was filled and updates states accordingly.
@@ -73,6 +70,20 @@ static void vDmaHandler() {
  */
 void vAdcDmaInit() {
     printf("ADC_DMA: Initializing...\n");
+
+    /* ADDED: Stop everything first if already initialized */
+    if (bCaptureRunning) {
+        vAdcDmaStop();
+    }
+    
+    /* ADDED: If channel was claimed before, unclaim it */
+    static bool bFirstInit = true;
+    if (!bFirstInit) {
+        dma_channel_unclaim(iDmaChannel);
+        irq_set_enabled(DMA_IRQ_0, false);
+        irq_remove_handler(DMA_IRQ_0, vDmaHandler);
+    }
+    bFirstInit = false;
 
     /* Turn off the ADC */
     adc_run(false);
@@ -165,8 +176,33 @@ void vAdcDmaStartContinous() {
 }
 
 void vAdcDmaStop() {
-    bCaptureRunning = false;
+    if (!bCaptureRunning) return;
+    
+    printf("ADC_DMA: Stopping...\n");
+    
+    /* Stop ADC conversion */
     adc_run(false);
+    
+    /* Disable DMA channel */
+    dma_channel_abort(iDmaChannel);
+    
+    /* Clear any pending IRQs */
+    dma_channel_acknowledge_irq0(iDmaChannel);
+    
+    /* Drain FIFO */
+    adc_fifo_drain();
+    
+    bCaptureRunning = false;
+    
+    /* ADDED: Reset buffer states */
+    taskENTER_CRITICAL();
+    for (int i = 0; i < NUM_BUFFERS; i++) {
+        xBuffers[i].xState = BUFFER_EMPTY;
+        ulBufferTimestamp[i] = 0;
+    }
+    ucWriteIndex = 0;
+    ucLastCompleted = 0;
+    taskEXIT_CRITICAL();
 }
 
 /* Zero-copy version: Returns pointer to DMA buffer (setting it to PROCESSING) */

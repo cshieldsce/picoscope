@@ -45,4 +45,7 @@ void vScopeDataSetWebServerHandle(TaskHandle_t handle);
  */
 bool bGetLatestScopeData(ScopeBuffer_t *pData, bool bCalculateStats);
 
+/* Release the currently held buffer (allows promotion of xReady) */
+void vScopeDataReleaseBuffer(void);
+
 #endif /* SCOPE_DATA_H */

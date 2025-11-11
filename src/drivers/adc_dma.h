@@ -23,6 +23,9 @@ typedef struct {
     BufferState_t xState;
 } AdcBuffer_t;
 
+/* Overrun counter when ISR has to reuse current buffer to avoid PROCESSING */
+static volatile uint32_t ulOverruns = 0;
+
 void vAdcDmaInit(void);
 void vAdcDmaStartContinous(void);
 void vAdcDmaStop(void);

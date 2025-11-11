@@ -54,7 +54,6 @@ void vScopeDataPublishBuffer(uint16_t *buffer, uint32_t timestamp) {
     /* Drop older 'ready' if present (always keep the newest) */
     if (xReady.pusSamples != NULL) {
         vAdcDmaReleaseBuffer(xReady.pusSamples);
-        memset(&xReady, 0, sizeof(xReady));
     }
 
     xReady.pusSamples = buffer;
@@ -70,11 +69,8 @@ void vScopeDataPublishBuffer(uint16_t *buffer, uint32_t timestamp) {
 
 
 /* Web server consumer function
- * Called by the web server task to obtain a stable snapshot.
- * If a new 'ready' data exists, release previous 'in_use' data back to ADC,
- * promote the new 'ready' data to 'in_use'. If no new 'ready' data,
- * return current the current 'in_use' data (if any).
- * Optionally compute stats (for now required to make voltage readable).
+ * FIXED: Only promote xReady to xInUse if xInUse was returned previously.
+ * This allows the consumer to hold a buffer across multiple calls.
  */
 bool bGetLatestScopeData(ScopeBuffer_t *pData, bool bCalculateStats) {
     if (pData == NULL) return false;
@@ -83,22 +79,18 @@ bool bGetLatestScopeData(ScopeBuffer_t *pData, bool bCalculateStats) {
     bool bHaveData = false;
     bool bNeedStats = false;
 
-    /* Start new critical section to temporarily stop interrupts */
     taskENTER_CRITICAL();
-    if (xReady.pusSamples != NULL) {
-        /* Release previously in-use buffer back to ADC */
-        if (xInUse.pusSamples != NULL) {
-            vAdcDmaReleaseBuffer(xInUse.pusSamples);
-            memset(&xInUse, 0, sizeof(xInUse));
-        }
+    
+    /* FIXED: Only promote if we have a ready buffer AND no in-use buffer
+     * This lets the consumer hold the same buffer across multiple calls */
+    if (xReady.pusSamples != NULL && xInUse.pusSamples == NULL) {
         /* Promote ready to in_use */
         xInUse = xReady;
-        /* Clear old ready */
         memset(&xReady, 0, sizeof(xReady));
     }
 
     if (xInUse.pusSamples != NULL) {
-        xLocalCopy = xInUse;  /* Snapshot to calculate stats outside of critical section */
+        xLocalCopy = xInUse;
         bHaveData = true;
         bNeedStats = (bCalculateStats && !xInUse.bStatsValid);
     }
@@ -108,10 +100,9 @@ bool bGetLatestScopeData(ScopeBuffer_t *pData, bool bCalculateStats) {
 
     /* Compute stats outside the critical section to minimise lock time */
     if (bNeedStats) {
-        ScopeBuffer_t xTmp = xLocalCopy; /* Work on our snapshot copy */
+        ScopeBuffer_t xTmp = xLocalCopy;
         vCalculateStatistics(&xTmp);
 
-        /* Commit computed stats back into xInUse, then refresh xLocalCopy*/
         taskENTER_CRITICAL();
         if (xInUse.pusSamples == xLocalCopy.pusSamples) {
             xInUse.avg_voltage = xTmp.avg_voltage;
@@ -120,13 +111,21 @@ bool bGetLatestScopeData(ScopeBuffer_t *pData, bool bCalculateStats) {
             xInUse.bStatsValid  = true;
             xLocalCopy = xInUse;
         } else {
-            /* Buffer changed while we were computing; leave as-is */
             xLocalCopy = xInUse;
         }
         taskEXIT_CRITICAL();
     }
 
-    /* Return the latest snapshot */
     *pData = xLocalCopy;
     return true;
+}
+
+/* Explicitly release the in-use buffer */
+void vScopeDataReleaseBuffer(void) {
+    taskENTER_CRITICAL();
+    if (xInUse.pusSamples != NULL) {
+        vAdcDmaReleaseBuffer(xInUse.pusSamples);
+        memset(&xInUse, 0, sizeof(xInUse));
+    }
+    taskEXIT_CRITICAL();
 }
