@@ -883,11 +883,11 @@ struct timeval {
 
 
 #ifndef MG_ENABLE_LOG
-#define MG_ENABLE_LOG 1
+#define MG_ENABLE_LOG 0
 #endif
 
 #ifndef MG_ENABLE_CUSTOM_CALLOC
-#define MG_ENABLE_CUSTOM_CALLOC 0
+#define MG_ENABLE_CUSTOM_CALLOC 1
 #endif
 
 #ifndef MG_ENABLE_CUSTOM_LOG
@@ -969,11 +969,11 @@ struct timeval {
 #endif
 
 #ifndef MG_IO_SIZE
-#define MG_IO_SIZE 512  // Granularity of the send/recv IO buffer growth
+#define MG_IO_SIZE 256  // Granularity of the send/recv IO buffer growth
 #endif
 
 #ifndef MG_MAX_RECV_SIZE
-#define MG_MAX_RECV_SIZE (3UL * 1024UL * 1024UL)  // Maximum recv IO buffer size
+#define MG_MAX_RECV_SIZE 8192 //(3UL * 1024UL * 1024UL)  // Maximum recv IO buffer size
 #endif
 
 #ifndef MG_DATA_SIZE
