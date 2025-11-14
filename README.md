@@ -118,22 +118,22 @@ In `FreeRTOSConfig.h`:
 
 ## Roadmap: Future Features
 
-### Phase 7: Trigger Engine
+### Trigger Engine
 
 - **Goal**: Capture specific events (rising/falling edge, level, pulse width).
 - **Plan**: Add `core/trigger.[ch]` module with configurable trigger modes, holdoff, pre/post samples. Acquisition task will search for trigger condition before publishing buffer.
 
-### Phase 8: Advanced Measurements
+### Advanced Measurements
 
 - **Goal**: Auto-compute frequency, RMS, duty cycle, rise/fall time.
 - **Plan**: Add `core/dsp.[ch]` with FFT, zero-crossing detection, and edge timing. Display measurements in web UI.
 
-### Phase 9: Multi-Channel & AC Coupling
+### Multi-Channel & AC Coupling
 
 - **Goal**: Sample multiple ADC channels, toggle DC/AC coupling.
 - **Plan**: Extend DMA to round-robin mode, add DC offset removal in `dsp_remove_dc()`, add channel selector and coupling control in config.
 
-### Phase 10: Full Frontend UI
+### Full Frontend UI
 
 - **Goal**: Professional oscilloscope UI with controls and real-time updates.
 - **Features**:
@@ -144,14 +144,14 @@ In `FreeRTOSConfig.h`:
   - **Save/Export**: Download CSV or PNG of waveform
   - **WebSocket command channel**: Browser sends JSON commands (e.g., `{"trigger":{"mode":"rising","level":2048}}`) to update config on-the-fly
 
-### Phase 11: Persistence & Storage
+### Persistence & Storage
 
 - **Goal**: Save settings and waveforms to flash.
 - **Plan**: Use Pico flash to store config profiles, implement waveform capture history (ring buffer of triggered frames).
 
-### Phase 12: Performance Tuning
+### Performance Tuning
 
-- **Goal**: Push to 1 MSPS and beyond.
+- **Goal**: Push to 1 MSPS (overclock pico) and beyond.
 - **Plan**: Optimize DMA transfer size, tune ADC clock, profile critical paths, consider offloading decimation to PIO.
 
 ## Building
@@ -205,6 +205,7 @@ picotool reboot
 ## CMakeLists.txt Configuration
 
 **Key library linking:**
+
 ```cmake
 target_link_libraries(picoscope 
     pico_stdlib
@@ -219,4 +220,11 @@ Use `pico_cyw43_arch_lwip_sys_freertos` (not `threadsafe_background`) for proper
 
 ---
 
-**Status**: ✅ Phases 1-6 complete. Ready for trigger engine and advanced DSP (Phases 7+).
+## References
+
+Some key references and inspirations for this project:
+
+- [Scoppy - An oscilloscope and logic analyzer powered by an Android device and Raspberry Pi Pico](https://github.com/fhdm-dev/scoppy)
+- [XYZs of Oscilloscopes Primer by Tektronix](https://download.tek.com/document/03W_8605_7_HR_Letter.pdf)
+- [AWG with Raspberry Pi Pico on Autodesk Instructables](https://www.instructables.com/Arbitrary-Wave-Generator-With-the-Raspberry-Pi-Pic/)
+- ['Dr Jon EA: Pico & Pico 2' on YouTube for his series on FreeRTOS](https://www.youtube.com/@DrJonEA)
