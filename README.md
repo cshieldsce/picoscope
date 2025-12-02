@@ -2,7 +2,7 @@
 
 > A bare-metal, Wi-Fi-enabled digital oscilloscope built on the Raspberry Pi Pico 2 W. This project streams ADC data at 500 kSPS to a web-based UI over WebSocket with sub-10ms latency using a zero-copy, lock-free, triple-buffered architecture running on FreeRTOS.
 
-![Alt Text](docs/scope.gif)
+<img src="docs/scope.gif"  width="800" height="500">
 
 ## Core Technologies
 
@@ -34,27 +34,26 @@ graph LR
     C -- "Task Notify" --> D[WEBSERVER TASK<br/>Priority 2<br/>Decimate Min/Max and Send]
     D -- "WebSocket Frame" --> E[BROWSER UI<br/>WebSocket /<br/>HTML5 Canvas]
 ```
-
-1. **ADC + DMA**
+#### <ins>1. ADC + DMA</ins>
 
 - ADC samples at 500 kSPS (ADC clock / divider)
 - DMA fills 4096-sample buffers in the background
 - DMA IRQ marks buffer `FULL`, advances to next buffer (`EMPTY` or reuse if overrun)
 
-2. **Acquisition Task**
+#### <ins>2. Acquisition Task</ins>
 
 - Polls for `FULL` buffers via `bAdcDmaGetLatestBufferPtr()` (sets state to `PROCESSING`)
 - Publishes buffer pointer to `scope_data` module (zero-copy handoff)
 - Releases buffer back to DMA when consumer is done via `vAdcDmaReleaseBuffer()` (sets state to `EMPTY`)
 
-3. WebServer Task
+#### <ins>3. WebServer Task</ins>
 
 - Blocks on `ulTaskNotifyTake()` with 50ms timeout (20 FPS fallback)
 - Wakes immediately when acquisition task calls `xTaskNotifyGive()` (notification-based push)
 - Fetches latest buffer, decimates 4096 → 256 samples (min/max preserving), sends binary WebSocket frame
 - Also services Mongoose HTTP/WebSocket stack (`mg_mgr_poll`) and handles RTT pings
 
-4. Browser Frontend
+#### <ins>4. Browser Frontend</ins>
 
 - WebSocket receives binary frames: `[timestamp, age, sample_count, vmin, vmax, vavg, 256×uint16]`
 - Draws waveform on HTML5 canvas with grid
