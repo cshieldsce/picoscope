@@ -34,4 +34,14 @@ bool bAdcDmaGetLatestBufferPtr(uint16_t** pusBufferPtr, uint32_t* pulTimestamp);
 /* Release a previously handed-out DMA buffer back to the pool */
 void vAdcDmaReleaseBuffer(uint16_t* pusBufferPtr);
 
+/* Change sampling rate at runtime (Hz). Will safely restart DMA if needed. */
+void vAdcDmaSetSampleRate(uint32_t ulHz);
+/* Read back current target sample rate (Hz) */
+uint32_t ulAdcDmaGetSampleRate(void);
+/* Read back current measured sample rate (Hz) */
+uint32_t ulAdcDmaGetMeasuredSampleRate(void);
+
+/* Read back current capture status */
+bool bAdcDmaIsRunning(void);
+
 #endif

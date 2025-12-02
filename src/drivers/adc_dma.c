@@ -3,6 +3,7 @@
 #include "stdio.h"
 #include "hardware/dma.h"
 #include "hardware/adc.h"
+#include "hardware/clocks.h"
 #include "FreeRTOS.h"    
 #include "task.h"
 #include <string.h>
@@ -19,6 +20,11 @@ static volatile uint32_t ulBufferTimestamp[NUM_BUFFERS];
 
 /* Track last completed buffer explicitly for safe handout */
 static volatile uint8_t ucLastCompleted = 0;
+
+/* Target sample rate (Hz). Default ~512 kSPS like before */
+static uint32_t ulTargetSampleRateHz = 10000;
+static volatile uint32_t ulMeasuredSampleRateHz = 0;
+static uint32_t uLastDmaUs = 0;
 
 /* DMA Completion Handler 
  * Gets called with interupt when a DMA transfer completes.
@@ -60,7 +66,40 @@ static void vDmaHandler() {
                 true
             );
         }
+        
+        uint32_t now_us = time_us_32();
+        if (uLastDmaUs != 0) {
+            uint32_t dt_us = now_us - uLastDmaUs;
+            if (dt_us) ulMeasuredSampleRateHz = (ADC_BUFFER_SIZE * 1000000u) / dt_us;
+        }
+        uLastDmaUs = now_us;
     }
+}
+
+
+/* RP23xx ADC: empirical behavior
+ * - Sample rate ≈ clk_adc / clkdiv
+ * - clkdiv must be >= ~96, otherwise ADC runs at/near max (~500 kSPS)
+ */
+void vApplyAdcSampleRate(void) {
+    if (ulTargetSampleRateHz == 0) return;
+
+    const uint32_t clk_adc_hz = 48000000u;
+    const uint32_t MIN_CLKDIV = 96u;     // below this, ADC saturates to max rate
+    const uint32_t MAX_CLKDIV = 0xFFFFu; // hardware divider limit
+
+    // Compute divider, rounded up so actual <= target
+    uint32_t div = (clk_adc_hz + ulTargetSampleRateHz - 1u) / ulTargetSampleRateHz;
+
+    // Clamp to safe/hw limits
+    if (div < MIN_CLKDIV) div = MIN_CLKDIV;
+    if (div > MAX_CLKDIV) div = MAX_CLKDIV;
+
+    adc_set_clkdiv(div);
+
+    uint32_t actual_fs = clk_adc_hz / div;
+    printf("ADC: target=%lu Hz, clk_adc=%lu Hz, clkdiv=%lu, actual=%lu Hz\n",
+           ulTargetSampleRateHz, clk_adc_hz, div, actual_fs);
 }
 
 /* ADC DMA Initialization
@@ -94,15 +133,7 @@ void vAdcDmaInit() {
     /* Initialize the ADC */
     adc_init();
     adc_select_input(ADC_CHANNEL);
-    
-    /* Sets ADC to round robin countinous sampling 
-       Allows us to transfer the samples to memory without continuous CPU intervention.
-       Might not need for single channel.
-    */
     adc_set_round_robin(0);
-
-    /* Set sampling to full speed */
-    adc_set_clkdiv(0);  
     
     // Set up voltage reference (internal 3.3V)
     adc_hw->cs |= ADC_CS_EN_BITS;
@@ -120,7 +151,9 @@ void vAdcDmaInit() {
 
     /* Drain FIFO just in case */
     adc_fifo_drain();
-    
+
+    vApplyAdcSampleRate();
+
     iDmaChannel = dma_claim_unused_channel(true);
     configASSERT(iDmaChannel != -1);
 
@@ -162,9 +195,15 @@ void vAdcDmaStartContinous() {
     bCaptureRunning = true;
     ucWriteIndex = 0;
     
+    /* Drain FIFO before starting */
+    adc_fifo_drain();
+    
     /* Begin our first transfer */
     xBuffers[ucWriteIndex].xState = BUFFER_FILLING;
+    
+    /* Start ADC AFTER setting clock divider */
     adc_run(true);
+    
     dma_channel_configure(
         iDmaChannel,
         &dmaConfig,
@@ -239,4 +278,36 @@ void vAdcDmaReleaseBuffer(uint16_t* pusBufferPtr) {
         }
     }
     taskEXIT_CRITICAL();
+}
+
+/* Public API: change Fs and safely restart if running */
+void vAdcDmaSetSampleRate(uint32_t ulHz) {
+    if (ulHz < 1000) ulHz = 1000;       // Min 1 kHz
+    if (ulHz > 512000) ulHz = 512000;   // Max 512 kHz
+    
+    ulTargetSampleRateHz = ulHz;
+    
+    // If capture is running, stop and restart with new rate
+    bool was_running = bCaptureRunning;
+    if (was_running) {
+        vAdcDmaStop();
+    }
+    
+    vApplyAdcSampleRate();  // Apply the new rate
+    
+    if (was_running) {
+        vAdcDmaStartContinous();
+    }
+    
+    printf("Sample rate changed to %lu Hz\n", ulHz);
+}
+
+uint32_t ulAdcDmaGetSampleRate(void) {
+    return ulTargetSampleRateHz;
+}
+
+uint32_t ulAdcDmaGetMeasuredSampleRate(void) { return ulMeasuredSampleRateHz; }
+
+bool bAdcDmaIsRunning(void) {
+    return bCaptureRunning;
 }
