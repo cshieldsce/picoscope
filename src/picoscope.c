@@ -67,6 +67,7 @@ static void vInitTask(void *pv) {
         for(;;);
     }
 
+    /* Initialize test signal output */
     vTestSignalInit();
 
     /* Initialize scope data system */
