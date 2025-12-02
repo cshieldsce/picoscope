@@ -1,6 +1,6 @@
 # Picoscope - Pico 2 W Wi-Fi Oscilloscope
 
-A bare-metal, Wi-Fi-enabled digital oscilloscope built on the Raspberry Pi Pico 2 W. This project streams ADC data at 500 kSPS to a web-based UI over WebSocket with sub-10ms latency using a zero-copy, lock-free, triple-buffered architecture running on FreeRTOS.
+> A bare-metal, Wi-Fi-enabled digital oscilloscope built on the Raspberry Pi Pico 2 W. This project streams ADC data at 500 kSPS to a web-based UI over WebSocket with sub-10ms latency using a zero-copy, lock-free, triple-buffered architecture running on FreeRTOS.
 
 ![Alt Text](docs/scope.gif)
 
@@ -35,44 +35,31 @@ graph LR
     D -- "WebSocket Frame" --> E[BROWSER UI<br/>WebSocket /<br/>HTML5 Canvas]
 ```
 
-1. ADC + DMA (ISR-driven, no CPU)
+1. **ADC + DMA**
 
 - ADC samples at 500 kSPS (ADC clock / divider)
 - DMA fills 4096-sample buffers in the background
 - DMA IRQ marks buffer `FULL`, advances to next buffer (`EMPTY` or reuse if overrun)
 
-2. Triple Buffer States
-
-- `BUFFER_EMPTY`: Available for DMA
-- `BUFFER_FILLING`: Currently being written by DMA
-- `BUFFER_FULL`: Ready for acquisition task to consume
-- `BUFFER_PROCESSING`: Owned by acquisition task (prevents ISR from overwriting)
-
-3. Acquisition Task (Priority 3)
+2. **Acquisition Task**
 
 - Polls for `FULL` buffers via `bAdcDmaGetLatestBufferPtr()` (sets state to `PROCESSING`)
 - Publishes buffer pointer to `scope_data` module (zero-copy handoff)
 - Releases buffer back to DMA when consumer is done via `vAdcDmaReleaseBuffer()` (sets state to `EMPTY`)
 
-4. Scope Data Module (Ready/InUse double-buffer)
-
-- Maintains two slots: `xReady` (latest unpublished) and `xInUse` (currently being sent)
-- `vScopeDataPublishBuffer()`: acquisition task stores new buffer in `xReady`, drops older if present
-- `bGetLatestScopeData()`: web task promotes `xReady` → `xInUse`, releases old `xInUse` back to DMA
-- Computes voltage stats (min/max/avg) lazily outside critical sections
-
-5. WebServer Task (Priority 2)
+3. WebServer Task
 
 - Blocks on `ulTaskNotifyTake()` with 50ms timeout (20 FPS fallback)
 - Wakes immediately when acquisition task calls `xTaskNotifyGive()` (notification-based push)
 - Fetches latest buffer, decimates 4096 → 256 samples (min/max preserving), sends binary WebSocket frame
 - Also services Mongoose HTTP/WebSocket stack (`mg_mgr_poll`) and handles RTT pings
 
-6. Browser Frontend
+4. Browser Frontend
 
 - WebSocket receives binary frames: `[timestamp, age, sample_count, vmin, vmax, vavg, 256×uint16]`
 - Draws waveform on HTML5 canvas with grid
 - Displays live metrics and round-trip latency (ping/pong)
+- Operates controls for modifying the trigger frame
 
 ### Task Notification Magic
 
@@ -105,54 +92,19 @@ Without these, Mongoose's `mg_http_listen()` will panic due to insufficient mail
 In `FreeRTOSConfig.h`:
 
 ```c
-#define configTOTAL_HEAP_SIZE (256*1024)  // 256KB required for tasks + lwIP + Mongoose
+#define configTOTAL_HEAP_SIZE (256*1024)   // Increase heap size for required for tasks + lwIP + Mongoose
 #define configCHECK_FOR_STACK_OVERFLOW 2   // Enable stack overflow detection
 #define configUSE_MALLOC_FAILED_HOOK 1     // Catch OOM early
 ```
 
-### DMA Handler (`vDmaHandler`)
-
-- Runs in interrupt context—must be fast and ISR-safe
-- Uses `taskENTER_CRITICAL()` to protect buffer state changes
-- If next buffer is `PROCESSING` (consumer slow), reuses current buffer and increments `ulOverruns` counter (drops frame instead of blocking)
-
 ## Roadmap: Future Features
 
-### Trigger Engine
-
-- **Goal**: Capture specific events (rising/falling edge, level, pulse width).
-- **Plan**: Add `core/trigger.[ch]` module with configurable trigger modes, holdoff, pre/post samples. Acquisition task will search for trigger condition before publishing buffer.
-
-### Advanced Measurements
-
-- **Goal**: Auto-compute frequency, RMS, duty cycle, rise/fall time.
-- **Plan**: Add `core/dsp.[ch]` with FFT, zero-crossing detection, and edge timing. Display measurements in web UI.
-
-### Multi-Channel & AC Coupling
-
-- **Goal**: Sample multiple ADC channels, toggle DC/AC coupling.
-- **Plan**: Extend DMA to round-robin mode, add DC offset removal in `dsp_remove_dc()`, add channel selector and coupling control in config.
-
-### Full Frontend UI
-
-- **Goal**: Professional oscilloscope UI with controls and real-time updates.
-- **Features**:
-  - **Control panel**: Trigger settings (mode, level, edge), timebase (sample rate, window), voltage range, coupling
-  - **Measurements panel**: Auto-display Vmin/Vmax/Vpp/freq/RMS/duty cycle
-  - **Cursors**: Draggable time/voltage cursors for manual measurements
-  - **Zoom/Pan**: Navigate through captured waveforms
-  - **Save/Export**: Download CSV or PNG of waveform
-  - **WebSocket command channel**: Browser sends JSON commands (e.g., `{"trigger":{"mode":"rising","level":2048}}`) to update config on-the-fly
-
-### Persistence & Storage
-
-- **Goal**: Save settings and waveforms to flash.
-- **Plan**: Use Pico flash to store config profiles, implement waveform capture history (ring buffer of triggered frames).
-
-### Performance Tuning
-
-- **Goal**: Push to 1 MSPS (overclock pico) and beyond.
-- **Plan**: Optimize DMA transfer size, tune ADC clock, profile critical paths, consider offloading decimation to PIO.
+- [x] Trigger Engine
+- [] Advanced Measurements
+- [] Multi-Channel & AC Coupling
+- [] Full Frontend UI
+- [] Persistence & Storage
+- [] Performance Tuning
 
 ## Building
 
@@ -191,7 +143,7 @@ picotool reboot
 ## Hardware Requirements
 
 - Raspberry Pi Pico 2 W (RP2350)
-- ADC input on GPIO26 (ADC0) – connect via 10 kΩ resistor + 100 nF cap to GND
+- ADC input on GPIO26 (ADC0) –> variable frontend circuit design
 - USB cable for power and serial debug
 
 ## Software Requirements
@@ -205,16 +157,6 @@ picotool reboot
 ## CMakeLists.txt Configuration
 
 **Key library linking:**
-
-```cmake
-target_link_libraries(picoscope 
-    pico_stdlib
-    pico_cyw43_arch_lwip_sys_freertos
-    hardware_adc
-    hardware_dma
-    FreeRTOS-Kernel-Heap4
-)
-```
 
 Use `pico_cyw43_arch_lwip_sys_freertos` (not `threadsafe_background`) for proper FreeRTOS integration with lwIP.
 
