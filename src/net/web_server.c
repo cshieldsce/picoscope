@@ -93,7 +93,7 @@ void vWebServerTask(void *pvParameters) {
 
                 TriggerResult_t res;
                 TriggerConfig_t* trig = pxCommandHandlerGetTriggerConfig();
-                trigger_build_frame(
+                bTriggerBuildFrame(
                     xLatest.pusSamples,
                     ADC_BUFFER_SIZE,
                     xPacket.ulSampleRateHz,
