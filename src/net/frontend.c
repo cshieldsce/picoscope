@@ -147,7 +147,7 @@ const char frontend_index_html[] =
 "  };"
 "}"
 "connect();"
-// ADD THIS: Command sending function
+// Command sending function
 "function sendCmd(cmd,value){"
 "  if(ws&&ws.readyState===1){"
 "    const msg=JSON.stringify({cmd:cmd,value:value});"
@@ -155,7 +155,7 @@ const char frontend_index_html[] =
 "    ws.send(msg);"
 "  }"
 "}"
-// ADD THIS: Wire up controls
+// Wire up controls
 "document.getElementById('trigLevel').oninput=e=>{"
 "  const v=parseFloat(e.target.value);"
 "  document.getElementById('trigLevelVal').textContent=v.toFixed(2)+'V';"
