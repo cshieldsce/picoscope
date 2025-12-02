@@ -36,13 +36,19 @@ pico_sdk_init()
 include(FreeRTOS_Kernel_import.cmake)
 
 # Add executable. Default name is the project name, version 0.1
-
 add_executable(picoscope 
         src/picoscope.c 
-        src/net/web_server.c 
-        src/drivers/adc_dma.c 
         src/core/scope_data.c 
-        src/third_party/mongoose.c)
+        src/core/trigger.c
+        src/core/command_handler.c
+        src/drivers/adc_dma.c 
+        src/drivers/test_signal.c
+        src/net/web_server.c 
+        src/net/mg_handler.c
+        src/net/frontend.c
+        src/third_party/mongoose.c
+        )
+
 
 pico_set_program_name(picoscope "picoscope")
 pico_set_program_version(picoscope "0.1")
@@ -65,6 +71,7 @@ target_compile_definitions(picoscope PRIVATE
         MG_ENABLE_LWIP=1
         MG_ENABLE_TCPIP=0
         MG_ENABLE_WINSOCK=0
+        MG_ENABLE_CUSTOM_CALLOC=1   # ensures mongoose uses mg_calloc/mg_free
 )
 
 # Add any user requested libraries
@@ -74,6 +81,7 @@ target_link_libraries(picoscope
         FreeRTOS-Kernel-Heap4
         hardware_adc
         hardware_dma
+        hardware_pwm
         )
 
 pico_add_extra_outputs(picoscope)
