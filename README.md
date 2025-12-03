@@ -99,11 +99,11 @@ In `FreeRTOSConfig.h`:
 ## Roadmap: Future Features
 
 - [x] Trigger Engine
-- [] Advanced Measurements
-- [] Multi-Channel & AC Coupling
-- [] Full Frontend UI
-- [] Persistence & Storage
-- [] Performance Tuning
+- [ ] Advanced Measurements
+- [ ] Multi-Channel & AC Coupling
+- [ ] Full Frontend UI
+- [ ] Persistence & Storage
+- [ ] Performance Tuning
 
 ## Building
 
