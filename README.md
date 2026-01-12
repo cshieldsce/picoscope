@@ -16,13 +16,7 @@ High-frequency analog signals are captured via hardware acceleration (DMA) to mi
 
 ## System Architecture
 
-```mermaid
-graph LR
-    A[HW: ADC + DMA<br/>IRQ<br/>500kSPS Input] -- "DMA Write / IRQ" --> B(TRIPLE BUFFER<br/>Zero-Copy Pool)
-    B -- "Buffer Full<br/>(Pointer Handoff)" --> C[ACQUISITION TASK<br/>Priority 3]
-    C -- "Task Notify" --> D[WEBSERVER TASK<br/>Priority 2<br/>Decimate Min/Max and Send]
-    D -- "WebSocket Frame" --> E[BROWSER UI<br/>WebSocket /<br/>HTML5 Canvas]
-```
+![alt text](docs/architecture_diagram.png)
 
 ### 1. The Producer
 
