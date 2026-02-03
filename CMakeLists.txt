@@ -28,7 +28,7 @@ set(PICO_BOARD pico2_w CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(picoscope C CXX ASM)
+project(memstream C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
@@ -36,8 +36,8 @@ pico_sdk_init()
 include(FreeRTOS_Kernel_import.cmake)
 
 # Add executable. Default name is the project name, version 0.1
-add_executable(picoscope 
-        src/picoscope.c 
+add_executable(memstream 
+        src/main.c 
         src/core/scope_data.c 
         src/core/trigger.c
         src/core/command_handler.c
@@ -50,23 +50,23 @@ add_executable(picoscope
         )
 
 
-pico_set_program_name(picoscope "picoscope")
-pico_set_program_version(picoscope "0.1")
+pico_set_program_name(memstream "memstream-rtos")
+pico_set_program_version(memstream "0.1")
 
 # Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(picoscope 0)
-pico_enable_stdio_usb(picoscope 1)
+pico_enable_stdio_uart(memstream 0)
+pico_enable_stdio_usb(memstream 1)
 
 # Add the standard library to the build
-target_link_libraries(picoscope
+target_link_libraries(memstream
         pico_stdlib)
 
 # Add the standard include files to the build
-target_include_directories(picoscope PRIVATE
+target_include_directories(memstream PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src
 )
 
-target_compile_definitions(picoscope PRIVATE
+target_compile_definitions(memstream PRIVATE
         MG_ARCH=MG_ARCH_PICOSDK
         MG_ENABLE_LWIP=1
         MG_ENABLE_TCPIP=0
@@ -75,7 +75,7 @@ target_compile_definitions(picoscope PRIVATE
 )
 
 # Add any user requested libraries
-target_link_libraries(picoscope 
+target_link_libraries(memstream 
         pico_cyw43_arch_lwip_sys_freertos
         FreeRTOS-Kernel
         FreeRTOS-Kernel-Heap4
@@ -84,4 +84,4 @@ target_link_libraries(picoscope
         hardware_pwm
         )
 
-pico_add_extra_outputs(picoscope)
+pico_add_extra_outputs(memstream)

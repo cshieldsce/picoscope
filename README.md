@@ -1,48 +1,32 @@
-# PicoScope: Networked Real-Time Oscilloscope (RTOS + DMA)
+# MemStream-RTOS: A Zero-Copy, DMA-Accelerated Hardware-to-Network Streaming Engine for RP2350
 
-> A high-performance, WiFi enabled oscilloscope implemented on the Raspberry Pi Pico 2 W.
-> Designed to demonstrate **hard real-time data acquisition** running concurrently with a **non-deterministic network stack**.
+> A high-performance, asynchronous data streaming framework implemented on the Raspberry Pi Pico 2 W (RP2350). Designed to demonstrate **hard real-time data acquisition** running concurrently with a **non-deterministic network stack**.
+
 
 ## Project Overview
-
 High-frequency analog signals are captured via hardware acceleration (DMA) to minimize CPU interrupts, while a FreeRTOS-managed TCP/IP stack serves a real-time visualization to a web client.
 
-**Core Technologies:**
-
-* **MCU:** RP2350
-* **OS:** FreeRTOS
-* **Networking:** Mongoose Web Server
-* **Interface:** Websockets based Frontend (HTML/JS)
+- **Real-Time OS:** Powered by FreeRTOS with Symmetric Multiprocessing (SMP) support for dual-core execution.
+- **Hardware Acceleration:** Uses a DMA engine to offload high-bandwidth data transfers, maintaining near-zero CPU overhead during acquisition.
+- **Concurrent Networking:** Integrates a Mongoose-based web server to provide a real-time WebSocket stream to remote clients.
 
 ## System Architecture
 
-```mermaid
-graph LR
-    A[HW: ADC + DMA<br/>IRQ<br/>500kSPS Input] -- "DMA Write / IRQ" --> B(TRIPLE BUFFER<br/>Zero-Copy Pool)
-    B -- "Buffer Full<br/>(Pointer Handoff)" --> C[ACQUISITION TASK<br/>Priority 3]
-    C -- "Task Notify" --> D[WEBSERVER TASK<br/>Priority 2<br/>Decimate Min/Max and Send]
-    D -- "WebSocket Frame" --> E[BROWSER UI<br/>WebSocket /<br/>HTML5 Canvas]
-```
+![alt text](docs/architecture_diagram.png)
 
-### 1. The Producer
+1. The Producer (Hardware Interface)
+- **DMA-Driven Acquisition:** The ADC is configured to stream directly into memory buffers without CPU intervention.
+- **Deterministic Timing:** Capable of hardware-governed sample rates up to 500 kS/s, ensuring data integrity regardless of network load.
 
-* **ADC Driver:** Configured for multiple sample rates up to **500 kS/s]**.
-* **DMA Engine:** Offloads data transfer from the ADC FIFO to memory buffers without waking the CPU.
-* **Trigger Logic:** Implements rising/falling edge detection on the raw buffer stream.
-
-### 2. The Consumer
-
-* **FreeRTOS Tasks:**
-    * `vBlinkTask`: Simple visual heartbeat.
-    * `vAcquisitionTask`: Captures latest data from ADC via DMA then passes to ScopeData.
-    * `vWebServerTask`: Manages the LwIP context and Mongoose event loop.
-* **Concurrency:** Uses **Task Notifications** to synchronize the capture-complete events with the data transmission logic, ensuring the WiFi stack never blocks the acquisition task.
+2. The Consumer (Network Interface)
+- **Task Synchronization:** Uses FreeRTOS Task Notifications to trigger the transmission logic immediately upon buffer completion.
+- **Zero-Copy Pipeline:** Data is published directly from DMA-filled buffers to the network stack, eliminating expensive memory-to-memory copies.
 
 ## Key Features
 
-* **Zero-Copy Capture:** CPU utilization is near-zero during the sampling phase due to DMA integration.
-* **Wireless Visualization:** Hosted web server allows viewing the output on any device (Phone/Laptop/Tablet).
-* **Configurable Triggering:** Software-defined trigger levels and timebase control.
+- **Multithreaded Execution:** Managed via specialized FreeRTOS tasks including `vAcquisitionTask` (high priority), `vWebServerTask` (network handling), and `vBlinkTask` (system heartbeat).
+- **Advanced Memory Management:** Features a custom 256KB heap configuration and dedicated stack allocations for each task to handle high-concurrency workloads.
+- **Event-Driven Architecture:** Leverages an asynchronous Mongoose event loop to manage LwIP contexts and WebSocket traffic.
 
 ## Build & Flash
 
@@ -52,7 +36,7 @@ graph LR
 mkdir build && cd build
 cmake ..
 make
-# Flash the .uf2 file to the Pico
+# Flash the  .uf2 to the Raspberry Pi Pico 2 W
 ```
 
 ## Demo
