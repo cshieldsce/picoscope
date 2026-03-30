@@ -1,10 +1,10 @@
-# MemStream-RTOS: A Zero-Copy, DMA-Accelerated Hardware-to-Network Streaming Engine for RP2350
+# MemStream-RTOS: A Zero-Copy Hardware-to-Network Streaming Engine for RP2350
 
-> A high-performance, asynchronous data streaming framework implemented on the Raspberry Pi Pico 2 W (RP2350). Designed to demonstrate **hard real-time data acquisition** running concurrently with a **non-deterministic network stack**.
+> A high-performance, asynchronous data streaming framework implemented on the Raspberry Pi Pico 2 W (RP2350). Demonstrates **hard real-time data acquisition** running concurrently with a **non-deterministic network stack**.
 
 
 ## Project Overview
-High-frequency analog signals are captured via hardware acceleration (DMA) to minimize CPU interrupts, while a FreeRTOS-managed TCP/IP stack serves a real-time visualization to a web client.
+Analog signals are captured via hardware acceleration (DMA) to minimize CPU interrupts, while a FreeRTOS-managed TCP/IP stack serves a real-time visualization to a web client.
 
 - **Real-Time OS:** Powered by FreeRTOS with Symmetric Multiprocessing (SMP) support for dual-core execution.
 - **Hardware Acceleration:** Uses a DMA engine to offload high-bandwidth data transfers, maintaining near-zero CPU overhead during acquisition.
@@ -14,18 +14,18 @@ High-frequency analog signals are captured via hardware acceleration (DMA) to mi
 
 ![alt text](docs/architecture_diagram.png)
 
-1. The Producer (Hardware Interface)
+1. The Producer (Hardware)
 - **DMA-Driven Acquisition:** The ADC is configured to stream directly into memory buffers without CPU intervention.
 - **Deterministic Timing:** Capable of hardware-governed sample rates up to 500 kS/s, ensuring data integrity regardless of network load.
 
-2. The Consumer (Network Interface)
+2. The Consumer (Network)
 - **Task Synchronization:** Uses FreeRTOS Task Notifications to trigger the transmission logic immediately upon buffer completion.
 - **Zero-Copy Pipeline:** Data is published directly from DMA-filled buffers to the network stack, eliminating expensive memory-to-memory copies.
 
 ## Key Features
 
-- **Multithreaded Execution:** Managed via specialized FreeRTOS tasks including `vAcquisitionTask` (high priority), `vWebServerTask` (network handling), and `vBlinkTask` (system heartbeat).
-- **Advanced Memory Management:** Features a custom 256KB heap configuration and dedicated stack allocations for each task to handle high-concurrency workloads.
+- **Multithreaded Execution:** Managed via specialized FreeRTOS tasks including `vAcquisitionTask` (DMA capture) and `vWebServerTask` (network handling).
+- **Advanced Memory Management:** Features a custom heap configuration and dedicated stack allocations for each task to handle high-concurrency workloads.
 - **Event-Driven Architecture:** Leverages an asynchronous Mongoose event loop to manage LwIP contexts and WebSocket traffic.
 
 ## Build & Flash
@@ -40,6 +40,8 @@ make
 ```
 
 ## Demo
+
+Video demo of the oscilloscope successfully streaming a square wave signal over WiFi via the Pico 2 W.
 
 <img src="docs/scope.gif"  width="795" height="703">
 
