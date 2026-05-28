@@ -1,32 +1,17 @@
-# MemStream-RTOS: A Zero-Copy Hardware-to-Network Streaming Engine for RP2350
+# MemStream
 
-> A high-performance, asynchronous data streaming framework implemented on the Raspberry Pi Pico 2 W (RP2350). Demonstrates **hard real-time data acquisition** running concurrently with a **non-deterministic network stack**.
+A zero-copy, hardware-to-network streaming engine for the Raspberry Pi Pico 2 W (RP2350). 
 
+MemStream acts as a wireless oscilloscope. It captures analog signals via hardware DMA (zero CPU overhead) and blasts them over WiFi via WebSockets using a FreeRTOS-managed TCP/IP stack. 
 
-## Project Overview
-Analog signals are captured via hardware acceleration (DMA) to minimize CPU interrupts, while a FreeRTOS-managed TCP/IP stack serves a real-time visualization to a web client.
+## Architecture
 
-- **Real-Time OS:** Powered by FreeRTOS with Symmetric Multiprocessing (SMP) support for dual-core execution.
-- **Hardware Acceleration:** Uses a DMA engine to offload high-bandwidth data transfers, maintaining near-zero CPU overhead during acquisition.
-- **Concurrent Networking:** Integrates a Mongoose-based web server to provide a real-time WebSocket stream to remote clients.
+![Architecture Diagram](docs/architecture_diagram.png)
 
-## System Architecture
+The pipeline is entirely zero-copy, eliminating expensive memory-to-memory transfers between acquisition and transmission:
 
-![alt text](docs/architecture_diagram.png)
-
-1. The Producer (Hardware)
-- **DMA-Driven Acquisition:** The ADC is configured to stream directly into memory buffers without CPU intervention.
-- **Deterministic Timing:** Capable of hardware-governed sample rates up to 500 kS/s, ensuring data integrity regardless of network load.
-
-2. The Consumer (Network)
-- **Task Synchronization:** Uses FreeRTOS Task Notifications to trigger the transmission logic immediately upon buffer completion.
-- **Zero-Copy Pipeline:** Data is published directly from DMA-filled buffers to the network stack, eliminating expensive memory-to-memory copies.
-
-## Key Features
-
-- **Multithreaded Execution:** Managed via specialized FreeRTOS tasks including `vAcquisitionTask` (DMA capture) and `vWebServerTask` (network handling).
-- **Advanced Memory Management:** Features a custom heap configuration and dedicated stack allocations for each task to handle high-concurrency workloads.
-- **Event-Driven Architecture:** Leverages an asynchronous Mongoose event loop to manage LwIP contexts and WebSocket traffic.
+1. **The Producer (Hardware):** The ADC is tied directly to the DMA engine, streaming into memory buffers at up to 500 kS/s. This guarantees hard real-time, deterministic sampling regardless of network load.
+2. **The Consumer (Network):** A dual-core FreeRTOS SMP setup manages task synchronization. Upon buffer completion, Task Notifications instantly wake the Mongoose web server, which publishes the raw memory buffers directly to connected WebSocket clients.
 
 ## Build & Flash
 
@@ -36,7 +21,7 @@ Analog signals are captured via hardware acceleration (DMA) to minimize CPU inte
 mkdir build && cd build
 cmake ..
 make
-# Flash the  .uf2 to the Raspberry Pi Pico 2 W
+# Drop the compiled .uf2 onto your Raspberry Pi Pico 2 W.
 ```
 
 ## Demo
@@ -49,7 +34,5 @@ Video demo of the oscilloscope successfully streaming a square wave signal over 
 
 Some references I used for this project:
 
-- [Scoppy - An oscilloscope and logic analyzer powered by an Android device and Raspberry Pi Pico](https://github.com/fhdm-dev/scoppy)
-- [XYZs of Oscilloscopes Primer by Tektronix](https://download.tek.com/document/03W_8605_7_HR_Letter.pdf)
 - [AWG with Raspberry Pi Pico on Autodesk Instructables](https://www.instructables.com/Arbitrary-Wave-Generator-With-the-Raspberry-Pi-Pic/)
 - ['Dr Jon EA: Pico & Pico 2' on YouTube for his series on FreeRTOS](https://www.youtube.com/@DrJonEA)
